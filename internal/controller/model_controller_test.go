@@ -17,68 +17,214 @@ limitations under the License.
 package controller
 
 import (
-	"context"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	ollamav1alpha1 "github.com/sivchari/ollama-operator/api/v1alpha1"
 )
 
-var _ = Describe("Model Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+const (
+	modelReconcilerName      = "model-reconciler-test"
+	modelReconcilerNamespace = "model-reconciler-test"
+)
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+func TestModelReconciler(t *testing.T) {
+	ns, err := env.CreateNamespace(ctx, modelReconcilerNamespace)
+	if err != nil {
+		t.Fatalf("failed to create namespace: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := env.Delete(ctx, ns); err != nil {
+			t.Fatalf("failed to delete namespace: %v", err)
 		}
-		model := &ollamav1alpha1.Model{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind Model")
-			err := k8sClient.Get(ctx, typeNamespacedName, model)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &ollamav1alpha1.Model{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &ollamav1alpha1.Model{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance Model")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &ModelReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
 	})
-})
+
+	t.Run("Should create Model and Pod", func(t *testing.T) {
+		g := NewWithT(t)
+		model := &ollamav1alpha1.Model{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: modelReconcilerName,
+				Namespace:    ns.Name,
+			},
+			Spec: ollamav1alpha1.ModelSpec{
+				Images: []string{"llama3"},
+			},
+		}
+		g.Expect(env.Create(ctx, model)).To(Succeed())
+		t.Cleanup(func() {
+			g.Expect(env.Delete(ctx, model)).To(Succeed())
+		})
+
+		key := client.ObjectKey{
+			Name:      model.Name,
+			Namespace: ns.Name,
+		}
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.GetFinalizers()).To(ContainElement(ollamav1alpha1.ModelFinalizer))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.Status.PodRef).NotTo(BeNil())
+			g.Expect(model.Status.PodRef.Name).NotTo(BeEmpty())
+			g.Expect(model.Status.PodRef.Namespace).To(Equal(ns.Name))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Image).To(Equal("ollama/ollama:latest"))
+			g.Expect(pod.Spec.Containers[0].Lifecycle.PostStart.Exec.Command).To(Equal([]string{"/bin/sh", "-c", "ollama pull llama3;"}))
+		}).Should(Succeed())
+	})
+
+	t.Run("Should recreate Pod when the Model is updated", func(t *testing.T) {
+		g := NewWithT(t)
+		model := &ollamav1alpha1.Model{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: modelReconcilerName,
+				Namespace:    ns.Name,
+			},
+			Spec: ollamav1alpha1.ModelSpec{
+				Images: []string{"llama3"},
+			},
+		}
+		g.Expect(env.Create(ctx, model)).To(Succeed())
+		t.Cleanup(func() {
+			g.Expect(env.Delete(ctx, model)).To(Succeed())
+		})
+
+		key := client.ObjectKey{
+			Name:      model.Name,
+			Namespace: ns.Name,
+		}
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.GetFinalizers()).To(ContainElement(ollamav1alpha1.ModelFinalizer))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.Status.PodRef).NotTo(BeNil())
+			g.Expect(model.Status.PodRef.Name).NotTo(BeEmpty())
+			g.Expect(model.Status.PodRef.Namespace).To(Equal(ns.Name))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Image).To(Equal("ollama/ollama:latest"))
+			g.Expect(pod.Spec.Containers[0].Lifecycle.PostStart.Exec.Command).To(Equal([]string{"/bin/sh", "-c", "ollama pull llama3;"}))
+		}).Should(Succeed())
+
+		model.Spec.Images = append(model.Spec.Images, "hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF")
+		g.Expect(updateModel(model)).To(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Image).To(Equal("ollama/ollama:latest"))
+			g.Expect(pod.Spec.Containers[0].Lifecycle.PostStart.Exec.Command).To(Equal([]string{"/bin/sh", "-c", "ollama pull llama3;ollama pull hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF;"}))
+		}).Should(Succeed())
+	})
+
+	t.Run("Should recreate Pod when the current Pod is deleted", func(t *testing.T) {
+		g := NewWithT(t)
+		model := &ollamav1alpha1.Model{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: modelReconcilerName,
+				Namespace:    ns.Name,
+			},
+			Spec: ollamav1alpha1.ModelSpec{
+				Images: []string{"llama3"},
+			},
+		}
+		g.Expect(env.Create(ctx, model)).To(Succeed())
+		t.Cleanup(func() {
+			g.Expect(env.Delete(ctx, model)).To(Succeed())
+		})
+
+		key := client.ObjectKey{
+			Name:      model.Name,
+			Namespace: ns.Name,
+		}
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.GetFinalizers()).To(ContainElement(ollamav1alpha1.ModelFinalizer))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			g.Expect(model.Status.PodRef).NotTo(BeNil())
+			g.Expect(model.Status.PodRef.Name).NotTo(BeEmpty())
+			g.Expect(model.Status.PodRef.Namespace).To(Equal(ns.Name))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Image).To(Equal("ollama/ollama:latest"))
+			g.Expect(pod.Spec.Containers[0].Lifecycle.PostStart.Exec.Command).To(Equal([]string{"/bin/sh", "-c", "ollama pull llama3;"}))
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(env.Delete(ctx, pod)).To(Succeed())
+		}).Should(Succeed())
+
+		g.Eventually(func(g Gomega) {
+			model := &ollamav1alpha1.Model{}
+			g.Expect(env.Get(ctx, key, model)).To(Succeed())
+			pod := &corev1.Pod{}
+			g.Expect(env.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: model.Status.PodRef.Name}, pod)).To(Succeed())
+			g.Expect(pod.Spec.Containers).To(HaveLen(1))
+			g.Expect(pod.Spec.Containers[0].Image).To(Equal("ollama/ollama:latest"))
+			g.Expect(pod.Spec.Containers[0].Lifecycle.PostStart.Exec.Command).To(Equal([]string{"/bin/sh", "-c", "ollama pull llama3;"}))
+		}).Should(Succeed())
+	})
+}
+
+func updateModel(obj *ollamav1alpha1.Model) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		model := &ollamav1alpha1.Model{}
+		if err := env.Get(ctx, client.ObjectKey{Namespace: obj.Namespace, Name: obj.Name}, model); err != nil {
+			return err
+		}
+		model.Spec = obj.Spec
+		if err := env.Update(ctx, model); err != nil {
+			return err
+		}
+		return nil
+	})
+}
