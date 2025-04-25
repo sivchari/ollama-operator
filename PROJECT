@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: sivchari.github.io
+domain: sivchari.io
 layout:
 - go.kubebuilder.io/v4
 projectName: ollama-operator
@@ -12,7 +12,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: sivchari.github.io
+  domain: sivchari.io
   group: ollama
   kind: Model
   path: github.com/sivchari/ollama-operator/api/v1alpha1

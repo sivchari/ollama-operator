@@ -17,25 +17,101 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const (
+	ModelFinalizer = "sivchari.io/model"
+)
 
 // ModelSpec defines the desired state of Model.
 type ModelSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// images is a list of images to be used for the ollama. At least one image is required.
+	// +required
+	// +kubebuilder:validation:MinItems=1
+	Images []string `json:"images,omitempty"`
 
-	// Foo is an example field of Model. Edit model_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// paused indicates whether the Model will be provisioned or not.
+	// If paused is true, the ollama will not be provisioned.
+	// +optional
+	Paused *bool `json:"paused,omitempty"`
+
+	// template is the template used to create the ollama server.
+	// +optional
+	Template *ModelTemplate `json:"template"`
 }
+
+type ModelTemplate struct {
+	// objectMeta is the metadata used to create the ollama server.
+	// +optional
+	Metadata *ObjectMeta `json:"metadata,omitempty"`
+
+	// spec is the spec used to create the ollama server.
+	// +optional
+	Spec *ModelTemplateSpec `json:"spec"`
+}
+
+type ModelTemplateSpec struct {
+	// volumeMounts is a list of volume mounts to be used for the ollama server.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// volumes is a list of volumes to be used for the ollama server.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// nodeSelector is a selector to restrict the nodes on which the ollama server will be provisioned.
+	// +optional
+	// +mapType=atomic
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// affinity is a set of rules used to select the nodes on which the ollama server will be provisioned.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// tolerations is a list of tolerations to be used for the ollama server.
+	// +optional
+	// +listType=atomic
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// topologySpreadConstraints is a list of topology spread constraints to be used for the ollama server.
+	// +optional
+	// +patchMergeKey=topologyKey
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=topologyKey
+	// +listMapKey=whenUnsatisfiable
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+}
+
+const (
+	// ModelConditionAvailable indicates that the model is available, but not need to be ready.
+	ModelConditionAvailable = "Available"
+
+	// ModelConditionReady indicates that the model is ready to be used.
+	ModelConditionReady = "Ready"
+
+	// ModelConditionFailed indicates that the model has failed.
+	ModelConditionFailed = "Failed"
+)
+
+const (
+	// PodCreated indicates that the pod has been created.
+	PodCreated = "PodCreated"
+
+	// PodRunning indicates that the pod is running.
+	PodRunning = "PodRunning"
+
+	// PodFailed indicates that the pod has failed.
+	PodFailed = "PodFailed"
+)
 
 // ModelStatus defines the observed state of Model.
 type ModelStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// podRef represents a reference to the pod where the model is running.
+	// +optional
+	PodRef *corev1.ObjectReference `json:"podRef,omitempty"`
 }
 
 // +kubebuilder:object:root=true
