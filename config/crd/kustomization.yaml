@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/ollama.sivchari.io_models.yaml
+- bases/ollama.sivchari.io_modelsets.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

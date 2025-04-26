@@ -17,4 +17,13 @@ resources:
   kind: Model
   path: github.com/sivchari/ollama-operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: sivchari.io
+  group: ollama
+  kind: ModelSet
+  path: github.com/sivchari/ollama-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

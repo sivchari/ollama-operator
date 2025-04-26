@@ -1,0 +1,9 @@
+apiVersion: ollama.sivchari.io/v1alpha1
+kind: ModelSet
+metadata:
+  labels:
+    app.kubernetes.io/name: ollama-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: modelset-sample
+spec:
+  # TODO(user): Add fields here
