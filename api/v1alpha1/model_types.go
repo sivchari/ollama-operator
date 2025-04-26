@@ -96,17 +96,6 @@ const (
 	ModelConditionFailed = "Failed"
 )
 
-const (
-	// PodCreated indicates that the pod has been created.
-	PodCreated = "PodCreated"
-
-	// PodRunning indicates that the pod is running.
-	PodRunning = "PodRunning"
-
-	// PodFailed indicates that the pod has failed.
-	PodFailed = "PodFailed"
-)
-
 // ModelStatus defines the observed state of Model.
 type ModelStatus struct {
 	// podRef represents a reference to the pod where the model is running.

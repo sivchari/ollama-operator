@@ -44,6 +44,15 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			panic(err)
 		}
+
+		err = (&ModelSetReconciler{
+			Client:               mgr.GetClient(),
+			Scheme:               mgr.GetScheme(),
+			OllamaContainerImage: "ollama/ollama:latest",
+		}).SetupWithManager(mgr)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	SetDefaultEventuallyPollingInterval(100 * time.Millisecond)

@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - ollama.sivchari.io
   resources:
-  - models
+  - modelsets
   verbs:
   - create
   - delete
@@ -19,13 +19,13 @@ rules:
 - apiGroups:
   - ollama.sivchari.io
   resources:
-  - models/finalizers
+  - modelsets/finalizers
   verbs:
   - update
 - apiGroups:
   - ollama.sivchari.io
   resources:
-  - models/status
+  - modelsets/status
   verbs:
   - get
   - patch
